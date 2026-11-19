@@ -6,12 +6,11 @@ const {
 } = require("@whiskeysockets/baileys");
 const express = require("express");
 const pino = require("pino");
-const qrcodeTerminal = require("qrcode-terminal");
-const QRCode = require("qrcode");
 const fs = require("fs");
 const path = require("path");
 
 // === CONFIGURAÇÕES EDITÁVEIS ===
+const NUMERO_BOT = "5521965261365"; // Número do WhatsApp do bot (DDI + DDD + Número)
 const MAX_USUARIOS = 20;
 const LINK_DESTINO = "https://exemplo.com/seu-link";
 const MENSAGEM_INFO =
@@ -23,7 +22,7 @@ const MENSAGEM_INFO =
 const ARQUIVO_NUMEROS = path.join(__dirname, "numeros_salvos.json");
 const PASTA_SESSAO = path.join(__dirname, "auth_info");
 
-let ultimoQrString = null;
+let codigoPareamento = null;
 let statusBot = "iniciando";
 
 function carregarNumeros() {
@@ -66,11 +65,11 @@ function extrairNumero(jid) {
   return jid.split("@")[0].split(":")[0].replace(/\D/g, "");
 }
 
-// Servidor HTTP para o Render não derrubar o Web Service
+// Servidor HTTP para o Render e exibição do código de pareamento
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/", async (req, res) => {
+app.get("/", (req, res) => {
   const registrados = carregarNumeros();
 
   if (statusBot === "conectado") {
@@ -81,13 +80,14 @@ app.get("/", async (req, res) => {
     `);
   }
 
-  if (ultimoQrString) {
-    const qrDataUrl = await QRCode.toDataURL(ultimoQrString);
+  if (codigoPareamento) {
     return res.send(`
-      <h2>Escaneie o QR Code no WhatsApp</h2>
-      <p>WhatsApp &gt; Aparelhos conectados &gt; Conectar aparelho</p>
-      <img src="${qrDataUrl}" alt="QR Code" style="width:280px;height:280px;" />
-      <p><small>Atualize a página se o QR Code expirar.</small></p>
+      <h2>Código de Pareamento WhatsApp</h2>
+      <p>No seu celular, abra: <b>WhatsApp &gt; Aparelhos conectados &gt; Conectar aparelho &gt; Conectar com número de telefone</b></p>
+      <div style="font-size:32px;font-weight:bold;letter-spacing:4px;padding:16px;background:#f0f0f0;display:inline-block;border-radius:8px;">
+        ${codigoPareamento}
+      </div>
+      <p><small>Número configurado: +${NUMERO_BOT}</small></p>
     `);
   }
 
@@ -109,24 +109,34 @@ async function iniciarBot() {
     version,
     logger: pino({ level: "silent" }),
     auth: state,
-    printQRInTerminal: false
+    printQRInTerminal: false,
+    browser: ["Ubuntu", "Chrome", "20.0.04"]
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect, qr } = update;
+  // Solicita o código de pareamento se ainda não estiver registrado
+  if (!sock.authState.creds.registered) {
+    setTimeout(async () => {
+      try {
+        const code = await sock.requestPairingCode(NUMERO_BOT);
+        const formatado = code?.match(/.{1,4}/g)?.join("-") || code;
+        codigoPareamento = formatado;
+        statusBot = "aguardando_codigo";
+        console.log("\n==========================================");
+        console.log(`SEU CÓDIGO DE PAREAMENTO: ${formatado}`);
+        console.log("==========================================\n");
+      } catch (err) {
+        console.error("Erro ao gerar código de pareamento:", err);
+      }
+    }, 3000);
+  }
 
-    if (qr) {
-      ultimoQrString = qr;
-      statusBot = "aguardando_qr";
-      console.log("\n=== ESCANEIE O QR CODE ABAIXO ===");
-      qrcodeTerminal.generate(qr, { small: true });
-      console.log("Ou abra a URL do seu serviço no Render para ver a imagem do QR Code.\n");
-    }
+  sock.ev.on("connection.update", (update) => {
+    const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
-      ultimoQrString = null;
+      codigoPareamento = null;
       statusBot = "conectado";
       console.log("WhatsApp conectado com sucesso!");
     }
@@ -140,7 +150,7 @@ async function iniciarBot() {
       if (deveReconectar) {
         setTimeout(() => iniciarBot(), 3000);
       } else {
-        console.log("Sessão desconectada (loggedOut). Apague auth_info e gere novo QR Code.");
+        console.log("Sessão desconectada (loggedOut). Apague auth_info e reinicie.");
       }
     }
   });
@@ -152,7 +162,6 @@ async function iniciarBot() {
       if (!msg.message || msg.key.fromMe) continue;
 
       const remoteJid = msg.key.remoteJid;
-      // Ignora grupos e status/broadcast
       if (!remoteJid || remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") {
         continue;
       }

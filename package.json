@@ -1,7 +1,7 @@
 {
   "name": "wpp-bot-render",
   "version": "1.0.0",
-  "description": "Bot WhatsApp via QR Code com limite de 20 contatos e envio de link",
+  "description": "Bot WhatsApp via Codigo de Pareamento com limite de 20 contatos e envio de link",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -9,8 +9,6 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.8",
     "express": "^4.21.1",
-    "pino": "^9.5.0",
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0"
+    "pino": "^9.5.0"
   }
 }
