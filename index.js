@@ -2,7 +2,8 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  Browsers
 } = require("@whiskeysockets/baileys");
 const express = require("express");
 const pino = require("pino");
@@ -24,6 +25,7 @@ const PASTA_SESSAO = path.join(__dirname, "auth_info");
 
 let codigoPareamento = null;
 let statusBot = "iniciando";
+let pareamentoSolicitado = false;
 
 function carregarNumeros() {
   if (!fs.existsSync(ARQUIVO_NUMEROS)) {
@@ -105,20 +107,27 @@ async function iniciarBot() {
   const { state, saveCreds } = await useMultiFileAuthState(PASTA_SESSAO);
   const { version } = await fetchLatestBaileysVersion();
 
+  pareamentoSolicitado = false;
+
   const sock = makeWASocket({
     version,
     logger: pino({ level: "silent" }),
     auth: state,
     printQRInTerminal: false,
-    browser: ["Ubuntu", "Chrome", "20.0.04"]
+    browser: Browsers.macOS("Chrome"),
+    syncFullHistory: false
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  // Solicita o código de pareamento se ainda não estiver registrado
-  if (!sock.authState.creds.registered) {
-    setTimeout(async () => {
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+
+    // Aguarda o servidor emitir o estado inicial (qr) antes de pedir o código de pareamento
+    if (qr && !sock.authState.creds.registered && !pareamentoSolicitado) {
+      pareamentoSolicitado = true;
       try {
+        await new Promise((r) => setTimeout(r, 1500));
         const code = await sock.requestPairingCode(NUMERO_BOT);
         const formatado = code?.match(/.{1,4}/g)?.join("-") || code;
         codigoPareamento = formatado;
@@ -127,13 +136,10 @@ async function iniciarBot() {
         console.log(`SEU CÓDIGO DE PAREAMENTO: ${formatado}`);
         console.log("==========================================\n");
       } catch (err) {
-        console.error("Erro ao gerar código de pareamento:", err);
+        pareamentoSolicitado = false;
+        console.error("Erro ao gerar código de pareamento:", err?.message || err);
       }
-    }, 3000);
-  }
-
-  sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update;
+    }
 
     if (connection === "open") {
       codigoPareamento = null;
@@ -146,9 +152,9 @@ async function iniciarBot() {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const deveReconectar = statusCode !== DisconnectReason.loggedOut;
 
-      console.log("Conexão encerrada. Reconectar:", deveReconectar);
+      console.log("Conexão encerrada. Código:", statusCode, "Reconectar:", deveReconectar);
       if (deveReconectar) {
-        setTimeout(() => iniciarBot(), 3000);
+        setTimeout(() => iniciarBot(), 4000);
       } else {
         console.log("Sessão desconectada (loggedOut). Apague auth_info e reinicie.");
       }
