@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 
 // === CONFIGURAÇÕES EDITÁVEIS ===
-const NUMERO_BOT = "5521965261365"; // Número do WhatsApp do bot (DDI + DDD + Número)
+const NUMERO_BOT = "5521978835580"; // Número do WhatsApp do bot (DDI + DDD + Número)
 const MAX_USUARIOS = 20;
 const LINK_DESTINO = "https://exemplo.com/seu-link";
 const MENSAGEM_INFO =
